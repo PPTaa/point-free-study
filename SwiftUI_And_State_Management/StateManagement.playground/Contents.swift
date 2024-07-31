@@ -11,7 +11,10 @@ struct ContentView: View {
           Text("Counter demo")
         }
         NavigationLink(
-          destination: FavoritePrimesView(state: self.state)
+          destination: FavoritePrimesView(
+            favoritePrimes: self.$state.favoritePrimes,
+            activityFeed: self.$state.activityFeed
+          )
         ) {
           Text("Favorite primes")
         }
@@ -25,6 +28,24 @@ import Combine
 class AppState: ObservableObject {
   @Published var count = 0
   @Published var favoritePrimes: [Int] = []
+  @Published var loggedInUser: User?
+  @Published var activityFeed: [Activity] = []
+  
+  struct User {
+    let id: Int
+    let name: String
+    let bio: String
+  }
+  
+  struct Activity {
+    let timestamp: Date
+    let type: ActivityType
+    
+    enum ActivityType {
+      case addedFavoritePrime(Int)
+      case removedFavoritePrime(Int)
+    }
+  }
   
 }
 
@@ -32,6 +53,7 @@ struct CounterView: View {
   @ObservedObject var state: AppState
   @State var isPrimeModelShown: Bool = false
   @State var alertNthPrime: PrimeAlert?
+  @State var isNthPrimeButtonDisable: Bool = false
   
   var body: some View {
     VStack {
@@ -64,19 +86,12 @@ struct CounterView: View {
         }
       )
       Button(
-        action: {
-          nthPrime(
-            self.state.count,
-            callback: { prime in
-              guard let prime = prime else { return }
-              self.alertNthPrime = PrimeAlert(prime: prime)
-            }
-          )
-        },
+        action: nthPrimeButtonAction,
         label: {
           Text("What is the \(ordinal(self.state.count)) prime?")
         }
       )
+      .disabled(self.isNthPrimeButtonDisable)
     }
     .font(.title)
     .navigationTitle("Counter Demo")
@@ -89,6 +104,18 @@ struct CounterView: View {
         dismissButton: Alert.Button.default(Text("OK"))
       )
     }
+  }
+  
+  private func nthPrimeButtonAction() {
+    self.isNthPrimeButtonDisable = true
+    nthPrime(
+      self.state.count,
+      callback: { prime in
+        guard let prime = prime else { return }
+        self.alertNthPrime = PrimeAlert(prime: prime)
+        self.isNthPrimeButtonDisable = false
+      }
+    )
   }
 }
 
@@ -104,11 +131,11 @@ struct IsPrimeModelView: View {
     if isPrime(self.state.count) {
       Text("\(self.state.count) is prime 🥳🥳 !!!")
       if self.state.favoritePrimes.contains(self.state.count) {
-        Button(action: { self.state.favoritePrimes.removeAll(where: { $0 == self.state.count }) }) {
+        Button(action: self.state.removeFavoritePrime) {
           Text("Remove from favorite primes")
         }
       } else {
-        Button(action: { self.state.favoritePrimes.append(self.state.count) }) {
+        Button(action: self.state.addFavoritePrime) {
           Text("Save to favorite primes")
         }
       }
@@ -191,16 +218,19 @@ func nthPrime(_ n: Int, callback: @escaping (Int?) -> Void) {
 
 
 struct FavoritePrimesView: View {
-  @ObservedObject var state: AppState
+  @Binding var favoritePrimes: [Int]
+  @Binding var activityFeed: [AppState.Activity]
   
   var body: some View {
     List {
-      ForEach(self.state.favoritePrimes, id: \.self) { prime in
+      ForEach(self.favoritePrimes, id: \.self) { prime in
         Text("\(prime)")
       }
       .onDelete { indexSet in
         for index in indexSet {
-          self.state.favoritePrimes.remove(at: index)
+          let prime = self.favoritePrimes[index]
+          self.favoritePrimes.remove(at: index)
+          self.activityFeed.append(.init(timestamp: Date(), type: .removedFavoritePrime(prime)))
         }
       }
     }
@@ -210,6 +240,28 @@ struct FavoritePrimesView: View {
 //nthPrime(1_000_000) { p in
 //  print(p)
 //}
+
+extension AppState {
+  func addFavoritePrime() {
+    self.favoritePrimes.append(self.count)
+    self.activityFeed.append(.init(timestamp: Date(), type: .addedFavoritePrime(self.count)))
+  }
+  
+  func removeFavoritePrime(_ prime: Int) {
+    self.favoritePrimes.removeAll(where: { $0 == prime })
+    self.activityFeed.append(.init(timestamp: Date(), type: .removedFavoritePrime(prime)))
+  }
+  
+  func removeFavoritePrime() {
+    self.removeFavoritePrime(self.count)
+  }
+  
+  func removeFavoritePrime(at indexSet: IndexSet) {
+    for index in indexSet {
+      self.removeFavoritePrime(self.favoritePrimes[index])
+    }
+  }
+}
 
 import PlaygroundSupport
 
