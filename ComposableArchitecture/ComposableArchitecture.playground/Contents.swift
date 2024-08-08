@@ -22,6 +22,7 @@ struct ContentView: View {
 }
 
 import Combine
+
 struct AppState {
   var count = 0
   var favoritePrimes: [Int] = []
@@ -64,34 +65,110 @@ enum AppAction {
   case favoritePrimes(FavoritePrimesAction)
 }
 
-func appReducer(state: inout AppState, action : AppAction) {
+func counterReducer(state: inout Int, action : AppAction) {
   switch action {
   case .counter(.incrTapped):
-    state.count += 1
-    
+    state += 1
   case .counter(.decrTapped):
-    state.count -= 1
-  
+    state -= 1
+  default:
+    break
+  }
+}
+
+func primeModalReducer(state: inout AppState, action : AppAction) {
+  switch action {
   case .primeModal(.saveFavoritePrimeTapped):
     state.favoritePrimes.append(state.count)
     state.activityFeed.append(.init(timestamp: Date(), type: .addedFavoritePrime(state.count)))
-  
   case .primeModal(.removeFavoritePrimeTapped):
     state.favoritePrimes.removeAll(where: { $0 == state.count })
     state.activityFeed.append(.init(timestamp: Date(), type: .removedFavoritePrime(state.count)))
+  default:
+    break
+  }
+}
+
+struct FavoritePrimesState {
+  var favoritePrimes: [Int]
+  var activityFeed: [AppState.Activity]
+}
+
+func favoritePrimesReducer(state: inout FavoritePrimesState, action : AppAction) {
+  switch action {
   case .favoritePrimes(.deleteFavoritePrimes(let indexSet)):
     for index in indexSet {
       let prime = state.favoritePrimes[index]
       state.favoritePrimes.remove(at: index)
       state.activityFeed.append(.init(timestamp: Date(), type: .removedFavoritePrime(prime)))
     }
-    
+  default:
+    break
   }
 }
 
+func combine<Value, Action> (
+  _ reducers: (inout Value, Action) -> Void...
+//  _ first: @escaping (inout Value, Action) -> Void,
+//  _ second: @escaping (inout Value, Action) -> Void
+) -> (inout Value, Action) -> Void {
+  return { value, action in
+    for reducer in reducers {
+      reducer(&value, action)
+    }
+//    first(&value, action)
+//    second(&value, action)
+  }
+}
+
+func pullback<LocalValue, GlobalValue, Action>(
+  _ reducer: @escaping (inout LocalValue, Action) -> Void,
+  value: WritableKeyPath<GlobalValue, LocalValue>
+//  get: @escaping (GlobalValue) -> LocalValue,
+//  set: @escaping (inout GlobalValue, LocalValue) -> Void
+) -> (inout GlobalValue, Action) -> Void {
+  return { globalValue, action in
+    reducer(&globalValue[keyPath: value], action)
+//    var localValue = get(globalValue)
+//    reducer(&localValue, action)
+//    set(&globalValue, localValue)
+  }
+}
+
+extension AppState {
+  var favoritePrimesState: FavoritePrimesState {
+    get {
+      FavoritePrimesState(
+        favoritePrimes: self.favoritePrimes,
+        activityFeed: self.activityFeed
+      )
+    }
+    set {
+      self.favoritePrimes = newValue.favoritePrimes
+      self.activityFeed = newValue.activityFeed
+    }
+  }
+}
+//let test = pullback(favoritePrimesReducer, get: { $0.favoritePrimesState }, set: { $0.favoritePrimesState = $1 })
+
+let appReducer = combine(
+//  counterReducer,
+//  primeModalReducer,
+//  favoritePrimesReducer
+//  pullback(counterReducer, get: { $0.count }, set: { $0.count = $1 }),
+//  pullback(primeModalReducer, get: { $0 }, set: { $0 = $1 }),
+//  pullback(favoritePrimesReducer, get: { $0.favoritePrimesState }, set: { $0.favoritePrimesState = $1 })
+  pullback(counterReducer, value: \.count),
+  pullback(primeModalReducer, value: \.self),
+  pullback(favoritePrimesReducer, value: \.favoritePrimesState)
+)
+
+//let appReducer = pullback(_appReducer, value: \.self)
+//combine(combine(counterReducer, primeModalReducer), favoritePrimesReducer)
+
 var state = AppState()
-print(appReducer(state: &state, action: .counter(.incrTapped)))
-print(appReducer(state: &state, action: .counter(.decrTapped)))
+//print(appReducer(&state, .counter(.incrTapped)))
+//print(appReducer(&state, .counter(.decrTapped)))
 
 
 final class Store<Value, Action>: ObservableObject {
@@ -304,5 +381,3 @@ PlaygroundPage.current.liveView = UIHostingController(
     )
   )
 )
-
-
